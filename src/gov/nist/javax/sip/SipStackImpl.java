@@ -576,6 +576,9 @@ import javax.sip.message.Request;
  * <li><b>gov.nist.javax.sip.SSL_RENEGOTIATION_ENABLED = [true|false]</b> Default value is <b>true</b>. Allow or disallow SSL renegotiation to resolve potential DoS problem - 
  * <a href="http://web.nvd.nist.gov/view/vuln/detail?vulnId=CVE-2011-1473">reference</a> and <a href="http://www.ietf.org/mail-archive/web/tls/current/msg07553.html">another reference</a>. The safe option is to disable it.</li>
  *
+ * <li><b>gov.nist.javax.sip.AUTOMATICALLY_SEND_TRYING_AFTER_200MS_ENABLED = [true|false]</b> Default value is <b>true</b>.
+ * The sip specification indicates that a 100 Trying should be send automatically after 200ms if no response has been sent.
+   This flag can be used to disable this behavior.</li>
  *
  * <li><b>javax.net.ssl.keyStore = fileName </b> <br/>
  * Default is <it>NULL</it>. If left undefined the keyStore and trustStore will
@@ -1489,7 +1492,11 @@ public class SipStackImpl extends SIPTransactionStack implements
 				"true"));
 		
 		setSslRenegotiationEnabled(sslRenegotiationEnabled);
-		
+
+    boolean automaticallySendTryingAfter200msEnabled = Boolean.parseBoolean(configurationProperties.getProperty(
+        "gov.nist.javax.sip.AUTOMATICALLY_SEND_TRYING_AFTER_200MS_ENABLED",
+        "true"));
+    setAutomaticallySendTryingAfter200msEnabled(automaticallySendTryingAfter200msEnabled);
 	}
 
 	/*
