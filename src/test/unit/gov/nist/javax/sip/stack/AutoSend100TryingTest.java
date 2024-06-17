@@ -20,11 +20,9 @@ import javax.sip.ListeningPoint;
 import javax.sip.PeerUnavailableException;
 import javax.sip.RequestEvent;
 import javax.sip.ResponseEvent;
-import javax.sip.ServerTransaction;
 import javax.sip.SipFactory;
 import javax.sip.SipListener;
 import javax.sip.TimeoutEvent;
-import javax.sip.TransactionState;
 import javax.sip.TransactionTerminatedEvent;
 import javax.sip.address.Address;
 import javax.sip.address.AddressFactory;
@@ -33,7 +31,6 @@ import javax.sip.header.CSeqHeader;
 import javax.sip.header.CallIdHeader;
 import javax.sip.header.ContactHeader;
 import javax.sip.header.ContentTypeHeader;
-import javax.sip.header.ExpiresHeader;
 import javax.sip.header.FromHeader;
 import javax.sip.header.MaxForwardsHeader;
 import javax.sip.header.RouteHeader;
@@ -45,11 +42,9 @@ import javax.sip.message.Response;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.Logger;
 
-import test.unit.gov.nist.javax.sip.stack.CtxExpiredTest.Shootist;
-import test.unit.gov.nist.javax.sip.stack.CtxExpiredTest.Shootme;
 import junit.framework.TestCase;
 
-public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
+public class AutoSend100TryingTest extends TestCase {
     AddressFactory addressFactory;
 
     HeaderFactoryExt headerFactory;
@@ -63,6 +58,8 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
     private SipStackExt shootistStack;
 
     private SipStackExt shootmeStack;
+
+    private boolean automaticallySendTryingAfter200msEnabled = true;
 
     private static String PEER_ADDRESS = Shootme.myAddress;
 
@@ -83,21 +80,19 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
 
         private SipProviderExt provider;
 
-        private boolean saw1xx;
+        private boolean saw100;
 
         private ClientTransaction inviteTid;
 
         private Dialog dialog;
 
-        private boolean timeoutSeen;
 
-        private Dialog timeoutDialog;
-
-        public void checkState() {
-            assertTrue("Should see timeout ", timeoutSeen);
-            assertFalse("Should NOT see 1xx ", saw1xx);
-            assertEquals("Dialog must be inviteDIalog", this.dialog,
-                    timeoutDialog);
+        public void checkState(boolean shouldSee100) {
+            if (shouldSee100) {
+                assertTrue("Should see 100 ", saw100);
+            } else {
+                assertFalse("Should NOT see 100 ", saw100);
+            }
         }
 
         public Shootist(SipStackExt sipStack) throws Exception {
@@ -262,7 +257,7 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
         public void processResponse(ResponseEvent responseEvent) {
 
             if (responseEvent.getResponse().getStatusCode() == 100) {
-                this.saw1xx = true;
+                this.saw100 = true;
             }
         }
 
@@ -281,23 +276,9 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
 
         
         public void processDialogTimeout(DialogTimeoutEvent timeoutEvent) {
-            try {
-                this.timeoutSeen = true;
-                this.timeoutDialog = timeoutEvent.getDialog();
-                Dialog dialog = timeoutEvent.getDialog();
-                dialog.delete();
-                Request cancelRequest = inviteTid.createCancel();
-                ClientTransaction cancelTx = this.provider
-                        .getNewClientTransaction(cancelRequest);
-                cancelTx.sendRequest();
-            } catch (Exception exception) {
-                exception.printStackTrace();
-                logger.error("Unexpected exception", exception);
-                TestCase.fail("unexpected exception");
-            }
-
+            // This could happen if the test runs for too long
+            TestCase.fail("Unexpected event : processDialogTimeout");
         }
-
     }
 
     public class Shootme implements SipListener {
@@ -305,11 +286,10 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
         public static final int myPort = 6060;
         public static final String myAddress = "127.0.0.1";
         private SipProviderExt provider;
-        private boolean cancelSeen;
-        private boolean byeSeen;
+        private boolean inviteSeen;
 
         public void checkState() {
-            TestCase.assertTrue("Should see cancel", cancelSeen);
+            TestCase.assertTrue("Should see invite", inviteSeen);
         }
 
         public Shootme(SipStackExt sipStack) throws Exception {
@@ -347,22 +327,8 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
                                 .createResponse(Response.RINGING, request);
 
                         serverTransaction.sendResponse(ringingResponse);
-
+                        this.inviteSeen = true;
                     }
-                } else if (request.getMethod().equals(Request.CANCEL)) {
-                    ServerTransaction stx = requestEvent.getServerTransaction();
-                    Response okResponse = messageFactory.createResponse(200,
-                            request);
-                    stx.sendResponse(okResponse);
-                    this.cancelSeen = true;
-
-                } else if (request.getMethod().equals(Request.BYE)) {
-                    ServerTransaction stx = requestEvent.getServerTransaction();
-                    Response okResponse = messageFactory.createResponse(200,
-                            request);
-                    stx.sendResponse(okResponse);
-                    this.byeSeen = true;
-
                 }
             } catch (Exception ex) {
                 logger.error("Unexpected exception", ex);
@@ -392,12 +358,11 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
     }
 
     
-    public void setUp() throws Exception {
+    public void setUpSipStacks() throws Exception {
         SipFactory sipFactory = null;
 
         sipFactory = SipFactory.getInstance();
         sipFactory.setPathName("gov.nist");
-        Properties properties;
 
         try {
             headerFactory = (HeaderFactoryExt) sipFactory.createHeaderFactory();
@@ -410,46 +375,9 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
             fail("Unexpected exception");
         }
         try {
-            // Create SipStack object
-            properties = new Properties();
+          createShootist(sipFactory);
 
-            properties.setProperty("javax.sip.STACK_NAME", "shootist");
-            // You need 16 for logging traces. 32 for debug + traces.
-            // Your code will limp at 32 but it is best for debugging.
-            properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "32");
-            properties.setProperty("gov.nist.javax.sip.DEBUG_LOG",
-                    "shootistdebug.txt");
-
-            properties.setProperty(
-                    "gov.nist.javax.sip.EARLY_DIALOG_TIMEOUT_SECONDS", "30");
-            if(System.getProperty("enableNIO") != null && System.getProperty("enableNIO").equalsIgnoreCase("true")) {
-            	logger.info("\nNIO Enabled\n");
-            	properties.setProperty("gov.nist.javax.sip.MESSAGE_PROCESSOR_FACTORY", NioMessageProcessorFactory.class.getName());
-            }
-            this.shootistStack = (SipStackExt) sipFactory
-                    .createSipStack(properties);
-            this.shootist = new Shootist(shootistStack);
-
-            // -----------------------------
-            properties = new Properties();
-
-            properties.setProperty("gov.nist.javax.sip.AUTOMATICALLY_SEND_TRYING_AFTER_200MS_ENABLED", "false");
-
-            properties.setProperty("javax.sip.STACK_NAME", "shootme");
-            // You need 16 for logging traces. 32 for debug + traces.
-            // Your code will limp at 32 but it is best for debugging.
-            properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "32");
-            properties.setProperty("gov.nist.javax.sip.DEBUG_LOG",
-                    "shootmedebug.txt");
-            properties.setProperty(
-                    "gov.nist.javax.sip.EARLY_DIALOG_TIMEOUT_SECONDS", "30");
-            if(System.getProperty("enableNIO") != null && System.getProperty("enableNIO").equalsIgnoreCase("true")) {
-            	logger.info("\nNIO Enabled\n");
-            	properties.setProperty("gov.nist.javax.sip.MESSAGE_PROCESSOR_FACTORY", NioMessageProcessorFactory.class.getName());
-            }
-            this.shootmeStack = (SipStackExt) sipFactory
-                    .createSipStack(properties);
-            this.shootme = new Shootme(shootmeStack);
+          createShootme(sipFactory, automaticallySendTryingAfter200msEnabled);
 
         } catch (PeerUnavailableException e) {
             // could not find
@@ -464,16 +392,93 @@ public class DialogEarlyStateTimeoutWithout100Test extends TestCase {
 
     }
 
+
+    private void createShootme(SipFactory sipFactory, boolean automaticallySendTryingAfter200msEnabled) throws PeerUnavailableException, Exception {
+      Properties properties;
+      properties = new Properties();
+
+      // We have to make the stack name unique or else it will reuse the same stack that isn't configured how we want it.
+      String stackName = "shootme";
+      if (!automaticallySendTryingAfter200msEnabled) { // I want to make sure we also test that the default value is true by not setting it.
+          properties.setProperty("gov.nist.javax.sip.AUTOMATICALLY_SEND_TRYING_AFTER_200MS_ENABLED",
+                                 Boolean.toString(automaticallySendTryingAfter200msEnabled));
+          stackName = stackName + "AutoSendTryingDisabled";
+      }
+
+        properties.setProperty("javax.sip.STACK_NAME", stackName);
+      // You need 16 for logging traces. 32 for debug + traces.
+      // Your code will limp at 32 but it is best for debugging.
+      properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "32");
+      properties.setProperty("gov.nist.javax.sip.DEBUG_LOG", "shootmedebug.txt");
+      properties.setProperty("gov.nist.javax.sip.EARLY_DIALOG_TIMEOUT_SECONDS", "30");
+      if (System.getProperty("enableNIO") != null && System.getProperty("enableNIO").equalsIgnoreCase("true")) {
+        logger.info("\nNIO Enabled\n");
+        properties.setProperty("gov.nist.javax.sip.MESSAGE_PROCESSOR_FACTORY", NioMessageProcessorFactory.class.getName());
+      }
+      this.shootmeStack = (SipStackExt) sipFactory.createSipStack(properties);
+      this.shootme = new Shootme(shootmeStack);
+    }
+
+    private void createShootist(SipFactory sipFactory) throws PeerUnavailableException, Exception {
+      Properties properties;
+      // Create SipStack object
+      properties = new Properties();
+
+      properties.setProperty("javax.sip.STACK_NAME", "shootist");
+      // You need 16 for logging traces. 32 for debug + traces.
+      // Your code will limp at 32 but it is best for debugging.
+      properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "32");
+      properties.setProperty("gov.nist.javax.sip.DEBUG_LOG",
+              "shootistdebug.txt");
+
+      properties.setProperty(
+              "gov.nist.javax.sip.EARLY_DIALOG_TIMEOUT_SECONDS", "30");
+      if(System.getProperty("enableNIO") != null && System.getProperty("enableNIO").equalsIgnoreCase("true")) {
+      	logger.info("\nNIO Enabled\n");
+      	properties.setProperty("gov.nist.javax.sip.MESSAGE_PROCESSOR_FACTORY", NioMessageProcessorFactory.class.getName());
+      }
+      this.shootistStack = (SipStackExt) sipFactory
+              .createSipStack(properties);
+      this.shootist = new Shootist(shootistStack);
+    }
+
     
-    public void tearDown() throws Exception {
-        Thread.sleep(50000);
-        this.shootist.checkState();
-        this.shootme.checkState();
+    public void tearDown() {
         this.shootistStack.stop();
         this.shootmeStack.stop();
     }
 
-    public void testSendInviteExpectTimeout() {
+    public void testGivenUasAutoSendTryingEnabled_whenSendingInviteWithoutFinalResponse_thenExpectTimeoutWith100Trying()
+        throws Exception
+    {
+        // given
+        automaticallySendTryingAfter200msEnabled = true;
+        setUpSipStacks();
+
+        // when
         this.shootist.sendInvite();
+        Thread.sleep(3000);
+
+        // then
+        boolean shouldSee100 = true;
+        this.shootist.checkState(shouldSee100);
+        this.shootme.checkState();
+    }
+
+    public void testGivenUasAutoSendTryingDisabled_whenSendingInviteWithoutFinalResponse_thenExpectTimeoutWithout100Trying()
+        throws Exception
+    {
+        // given
+        automaticallySendTryingAfter200msEnabled = false;
+        setUpSipStacks();
+      
+        // when
+        this.shootist.sendInvite();
+        Thread.sleep(3000);
+  
+        // then
+        boolean shouldSee100 = false;
+        this.shootist.checkState(shouldSee100);
+        this.shootme.checkState();
     }
 }
