@@ -415,6 +415,12 @@ public abstract class SIPTransactionStack implements
     
     private boolean sslRenegotiationEnabled = false;
     
+    /**
+     * The sip specification indicates that a 100 Trying should be send automatically after 200ms if no response has been sent.
+     * This is the default behavior. This flag can be used to disable this behavior.
+     */
+    private boolean automaticallySendTryingAfter200msEnabled = true;
+
     protected SocketTimeoutAuditor socketTimeoutAuditor = null;
 
     private static class SameThreadExecutor implements Executor {
@@ -3366,4 +3372,12 @@ public abstract class SIPTransactionStack implements
 	public void setSslRenegotiationEnabled(boolean sslRenegotiationEnabled) {
 		this.sslRenegotiationEnabled = sslRenegotiationEnabled;
 	}
+
+  public void setAutomaticallySendTryingAfter200msEnabled(boolean automaticallySendTryingAfter200msEnabled) {
+    this.automaticallySendTryingAfter200msEnabled = automaticallySendTryingAfter200msEnabled;
+  }
+
+  public boolean isAutomaticallySendTryingAfter200msEnabled() {
+    return automaticallySendTryingAfter200msEnabled;
+  }
 }

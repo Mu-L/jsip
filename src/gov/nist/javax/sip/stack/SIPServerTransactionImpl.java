@@ -679,7 +679,8 @@ public class SIPServerTransactionImpl extends SIPTransactionImpl implements SIPS
         if (realState < 0 || realState == TransactionState._TRYING) {
             // Also sent by intermediate proxies.
             // null check added as the stack may be stopped. TRYING is not sent by reliable transports.
-            if (isInviteTransaction() && !this.isMapped && sipStack.getTimer() != null ) {
+            // Can be disabled by config
+            if (isInviteTransaction() && !this.isMapped && sipStack.getTimer() != null && sipStack.isAutomaticallySendTryingAfter200msEnabled()) {
                 this.isMapped = true;
                 // Schedule a timer to fire in 200 ms if the
                 // TU did not send a trying in that time.
